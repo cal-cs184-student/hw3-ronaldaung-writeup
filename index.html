@@ -48,34 +48,40 @@
 		Give a high-level overview of what you implemented in this homework. Think about what you've built as a whole. Share your thoughts on what interesting things you've learned from completing the homework.
 
 		<h2>Part 1: Ray Generation and Scene Intersection</h2>
-		Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+<h3>Ray generation and primitive intersection</h3>
+<p>For each pixel, the renderer draws <code>ns_aa</code> uniformly distributed samples inside the pixel using <code>gridSampler</code>. It adds each sample's offset to the pixel's bottom-left corner, then divides by the image width and height to obtain normalized image coordinates. Sampling multiple positions and averaging their colors estimates the pixel's radiance and smooths object boundaries.</p>
+<p><code>Camera::generate_ray</code> maps each normalized coordinate (x, y) onto the camera's sensor plane at z = &minus;1. The sensor point is ((2x &minus; 1) tan(hFov/2), (2y &minus; 1) tan(vFov/2), &minus;1), with the field-of-view angles converted from degrees to radians. The ray starts at the camera's world-space position. Its direction is the sensor vector rotated by <code>c2w</code> and normalized. The near and far clipping distances initialize <code>min_t</code> and <code>max_t</code>.</p>
+<p>Each camera ray is passed to <code>est_radiance_global_illumination</code>, which asks the scene's intersection structure for the closest primitive hit. At this stage, the starter structure stores the primitives in a single leaf and checks them directly. Triangle and sphere intersection routines accept only nonnegative distances within the ray's valid interval. On a hit, they shorten <code>max_t</code> to the hit distance, so later tests cannot replace it with a farther surface. They also record the distance, surface normal, primitive, and material in an <code>Intersection</code>. The boolean <code>has_intersection</code> routines share this logic but omit the intersection record.</p>
+<p>For spheres, substituting the ray o + td into the sphere equation produces a quadratic. A negative discriminant means the ray misses; otherwise, the roots give the entry and exit distances. The implementation sorts these roots and selects the nearest valid one, trying the exit when the entry is behind the ray origin or before <code>min_t</code>. This also handles rays starting inside a sphere. The normal is the normalized vector from the sphere center to the hit point.</p>
+<p>For Part 1, the hit normal is visualized as RGB using <code>0.5 * n + 0.5</code>, mapping its components from [&minus;1, 1] to [0, 1]. Misses return black in these scenes. Finally, <code>raytrace_pixel</code> averages the sample colors and writes the result to <code>sampleBuffer</code>. These colors show surface orientation rather than material color or physically based illumination.</p>
 
-		<p>Here is an example 2x2 gridlike structure using an HTML table. Each <b>tr</b> is a row and each <b>td</b> is a column in that row. You might find this useful for framing and showing your result images in an organized fashion.</p>
-		<div style="display: flex; flex-direction: column; align-items: center;">
-			<table style="width: 100%; text-align: center; border-collapse: collapse;">
-			  <tr>
-				<td style="text-align: center;">
-				  <img src="assets/cornell.png" width="400px"/>
-				  <figcaption>Caption goes here.</figcaption>
-				</td>
-				<td style="text-align: center;">
-				  <img src="assets/cornell.png" width="400px"/>
-				  <figcaption>Caption goes here.</figcaption>
-				</td>
-			  </tr>
-			  <tr>
-				<td style="text-align: center;">
-				  <img src="assets/cornell.png" width="400px"/>
-				  <figcaption>Caption goes here.</figcaption>
-				</td>
-				<td style="text-align: center;">
-				  <img src="assets/cornell.png" width="400px"/>
-				  <figcaption>Caption goes here.</figcaption>
-				</td>
-			  </tr>
-			</table>
-		</div>
-		
+<h3>Triangle intersection algorithm</h3>
+<p>The implementation uses the M&ouml;ller&ndash;Trumbore algorithm. A point on the triangle can be written as p1 + u(p2 &minus; p1) + v(p3 &minus; p1). Setting this equal to the ray o + td gives three unknowns: the distance t and two barycentric coordinates u and v. Cross products and dot products solve this system without explicitly building or inverting a matrix.</p>
+<p>First, the algorithm forms the two edges e1 = p2 &minus; p1 and e2 = p3 &minus; p1, then computes p = d &times; e2 and det = e1 &middot; p. If det is zero, the ray is parallel to the triangle plane or the triangle is degenerate, so the test returns false. Either sign of a nonzero determinant is accepted, allowing hits from both sides.</p>
+<p>Next, with s = o &minus; p1 and q = s &times; e1, the algorithm computes u = (s &middot; p)/det and v = (d &middot; q)/det. A hit lies inside or on the triangle only when u &ge; 0, v &ge; 0, and u + v &le; 1. Otherwise, the ray crosses the plane outside the triangle and is rejected. The remaining expression t = (e2 &middot; q)/det gives the ray distance, which must satisfy the valid-interval checks.</p>
+<p>For an accepted hit, the barycentric weights are (1 &minus; u &minus; v), u, and v. The shading normal is the normalized weighted sum of the three vertex normals. Interpolating these normals allows smooth shading across a mesh, while updating <code>max_t</code> ensures that the visible surface is the closest accepted hit.</p>
+
+<h3>Normal-shading results</h3>
+<p>All three images below were generated directly by the renderer using <code>-f</code>, at 800 &times; 600 pixels with 16 samples per pixel and 8 threads. Click an image to view the full-resolution PNG.</p>
+<figure>
+  <a href="assets/part1-empty.png"><img src="assets/part1-empty.png" width="800" style="max-width:100%;height:auto" alt="Normal-shaded empty Cornell box with uniformly colored walls" /></a>
+  <figcaption><code>CBempty.dae</code>: Each planar wall has a constant normal and therefore a uniform color. The distinct wall colors make triangle orientation and camera framing easy to inspect.</figcaption>
+</figure>
+<figure>
+  <a href="assets/part1-spheres.png"><img src="assets/part1-spheres.png" width="800" style="max-width:100%;height:auto" alt="Normal-shaded spheres inside a Cornell box" /></a>
+  <figcaption><code>CBspheres_lambertian.dae</code>: The spheres show smoothly changing colors as their analytic normals vary across their surfaces, alongside the constant colors of the surrounding triangle walls.</figcaption>
+</figure>
+<figure>
+  <a href="assets/part1-banana.png"><img src="assets/part1-banana.png" width="800" style="max-width:100%;height:auto" alt="Banana mesh rendered with surface normals mapped to color" /></a>
+  <figcaption><code>banana.dae</code>: A curved triangle mesh provides another check of triangle intersection and interpolated vertex normals.</figcaption>
+</figure>
+<p>Commands run from the renderer repository root after building (the resulting PNGs were copied into this write-up’s assets folder):</p>
+<pre style="overflow-x:auto">./build/pathtracer -t 8 -s 16 -r 800 600 -f docs/images/part1-empty.png dae/sky/CBempty.dae
+./build/pathtracer -t 8 -s 16 -r 800 600 -f docs/images/part1-spheres.png dae/sky/CBspheres_lambertian.dae
+./build/pathtracer -t 8 -s 16 -r 800 600 -f docs/images/part1-banana.png dae/keenan/banana.dae</pre>
+<br>
+
+
 		<h2>Part 2: Bounding Volume Hierarchy</h2>
 		Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
 
